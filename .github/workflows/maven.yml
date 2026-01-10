@@ -3,21 +3,10 @@ name: Build Selected Microservices
 on:
   workflow_dispatch:
     inputs:
-      build_api_gateway:
-        description: 'Build api-gateway'
-        type: boolean
+      service_names:
+        description: 'Comma-separated microservices to build (e.g., api-gateway,car-service,discovery-service)'
         required: true
-        default: true
-      build_car_service:
-        description: 'Build car-service'
-        type: boolean
-        required: true
-        default: false
-      build_discovery_service:
-        description: 'Build discovery-service'
-        type: boolean
-        required: true
-        default: false
+        type: string
       java_version:
         description: 'Java version (e.g., 17 or 21)'
         required: true
@@ -26,38 +15,45 @@ on:
           - '17'
           - '21'
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   prepare-matrix:
-    name: Prepare matrix from checkboxes
     runs-on: ubuntu-latest
     outputs:
-      services_json: ${{ steps.build.outputs.services_json }}
+      services_json: ${{ steps.build-matrix.outputs.services_json }}
     steps:
-      - name: Compute selected services JSON
-        id: build
+      - name: Build matrix JSON from input
+        id: build-matrix
         run: |
-          SELECTED=()
-          if [ "${{ github.event.inputs.build_api_gateway }}" = "true" ]; then
-            SELECTED+=("api-gateway")
-          fi
-          if [ "${{ github.event.inputs.build_car_service }}" = "true" ]; then
-            SELECTED+=("car-service")
-          fi
-          if [ "${{ github.event.inputs.build_discovery_service }}" = "true" ]; then
-            SELECTED+=("discovery-service")
-          fi
+          # Normalize: remove spaces, to lowercase
+          RAW="${{ github.event.inputs.service_names }}"
+          NORMALIZED=$(echo "$RAW" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
 
-          if [ ${#SELECTED[@]} -eq 0 ]; then
-            echo "No services selected. Choose at least one checkbox."
+          # Validate allowed values
+          IFS=',' read -ra ARR <<< "$NORMALIZED"
+          VALID=("api-gateway" "car-service" "discovery-service")
+          FILTERED=()
+          for svc in "${ARR[@]}"; do
+            for v in "${VALID[@]}"; do
+              if [ "$svc" = "$v" ]; then
+                FILTERED+=("$svc")
+              fi
+            done
+          done
+          if [ ${#FILTERED[@]} -eq 0 ]; then
+            echo "No valid services selected. Allowed: api-gateway, car-service, discovery-service"
             exit 1
           fi
 
-          printf -v JSON '[%s]' "$(printf '"%s",' "${SELECTED[@]}" | sed 's/,$//')"
+          # Emit JSON array for matrix
+          printf -v JSON '[%s]' "$(printf '"%s",' "${FILTERED[@]}" | sed 's/,$//')"
           echo "services_json=$JSON" >> $GITHUB_OUTPUT
           echo "Matrix: $JSON"
 
   build:
-    name: Build selected services
     needs: prepare-matrix
     runs-on: ubuntu-latest
     strategy:
@@ -68,6 +64,8 @@ jobs:
     env:
       SERVICE_DIR: ${{ matrix.service }}
       JAVA_VERSION: ${{ github.event.inputs.java_version }}
+      REGISTRY: ghcr.io
+      OWNER: ${{ github.repository_owner }}
 
     steps:
       - name: Checkout
@@ -86,14 +84,40 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
-          cache: maven # change to 'gradle' if any service uses Gradle
+          cache: maven
 
       - name: Build with Maven
         working-directory: ${{ env.SERVICE_DIR }}
         run: mvn -B -ntp -DskipTests=false clean verify
-        
-      - name: Upload JAR artifact
-        uses: actions/upload-artifact@v4
+
+      # ---- Docker build & push to GHCR ----
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          name: ${{ matrix.service }}-jar
-          path: ${{ env.SERVICE_DIR }}/target/*.jar
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image name & tags
+        id: meta
+        run: |
+          # Image: ghcr.io/<owner>/<service>
+          IMAGE="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.service }}"
+          SHA_TAG="${IMAGE}:${{ github.sha }}"
+          JAVA_TAG="${IMAGE}:java-${{ env.JAVA_VERSION }}"
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+          echo "sha_tag=${SHA_TAG}" >> $GITHUB_OUTPUT
+          echo "java_tag=${JAVA_TAG}" >> $GITHUB_OUTPUT
+          # latest only on main
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "latest_tag=${IMAGE}:latest" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -f "${{ env.SERVICE_DIR }}/Dockerfile" \
+            -t "${{ steps.meta.outputs.sha_tag }}" \
+            -t "${{ steps.meta.outputs.java_tag }}" \
+            ${{ steps.meta.outputs.latest_tag && format('-t {0}', steps.meta.outputs.latest_tag) || '' }} \
+            "${{ env.SERVICE_DIR }}"
