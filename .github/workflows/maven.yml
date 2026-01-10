@@ -8,9 +8,9 @@ on:
         required: true
         type: choice
         options:
-          - service-a
-          - service-b
-          - service-c
+          - api-gateway
+          - car-service
+          - discovery-service
       java_version:
         description: 'Java version (e.g., 17 or 21)'
         required: true
