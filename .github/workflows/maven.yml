@@ -91,3 +91,9 @@ jobs:
       - name: Build with Maven
         working-directory: ${{ env.SERVICE_DIR }}
         run: mvn -B -ntp -DskipTests=false clean verify
+        
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.service }}-jar
+          path: ${{ env.SERVICE_DIR }}/target/*.jar
