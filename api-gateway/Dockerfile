@@ -1,6 +1,6 @@
 # Use an official OpenJDK 11 runtime as the base image
-FROM openjdk:11-jre-slim
-
+#FROM openjdk:11-jre-slim
+FROM eclipse-temurin:11-jre-jammy
 # Set the working directory inside the container
 WORKDIR /app
 
