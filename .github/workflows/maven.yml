@@ -23,7 +23,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      SERVICE_DIR: microservices/${{ github.event.inputs.service_name }}
+      SERVICE_DIR: java-cicd/${{ github.event.inputs.service_name }}
       JAVA_VERSION: ${{ github.event.inputs.java_version }}
 
     steps:
