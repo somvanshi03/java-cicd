@@ -20,10 +20,47 @@ on:
           - '21'
 
 jobs:
-  build:
+  prepare-matrix:
     runs-on: ubuntu-latest
+    outputs:
+      services_json: ${{ steps.build-matrix.outputs.services_json }}
+    steps:
+      - name: Build matrix JSON from input
+        id: build-matrix
+        run: |
+          # Normalize: remove spaces, to lowercase
+          RAW="${{ github.event.inputs.service_names }}"
+          NORMALIZED=$(echo "$RAW" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
+          # Validate allowed values
+          IFS=',' read -ra ARR <<< "$NORMALIZED"
+          VALID=("api-gateway" "car-service" "discovery-service")
+          FILTERED=()
+          for svc in "${ARR[@]}"; do
+            for v in "${VALID[@]}"; do
+              if [ "$svc" = "$v" ]; then
+                FILTERED+=("$svc")
+              fi
+            done
+          done
+          if [ ${#FILTERED[@]} -eq 0 ]; then
+            echo "No valid services selected. Allowed: api-gateway, car-service, discovery-service"
+            exit 1
+          fi
+          # Emit JSON array for matrix
+          printf -v JSON '[%s]' "$(printf '"%s",' "${FILTERED[@]}" | sed 's/,$//')"
+          echo "services_json=$JSON" >> $GITHUB_OUTPUT
+          echo "Matrix: $JSON"
+
+  build:
+    needs: prepare-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.prepare-matrix.outputs.services_json) }}
+
     env:
-      SERVICE_DIR: ${{ github.event.inputs.service_name }}
+      SERVICE_DIR: ${{ matrix.service }}
       JAVA_VERSION: ${{ github.event.inputs.java_version }}
 
     steps:
@@ -43,10 +80,8 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
-          cache: maven # change to 'gradle' if using Gradle
+          cache: maven
 
-      # -------- Maven build --------
       - name: Build with Maven
         working-directory: ${{ env.SERVICE_DIR }}
-        run: |
-          mvn -B -ntp -DskipTests=false clean verify
+        run: mvn -B -ntp -DskipTests=false clean verify
