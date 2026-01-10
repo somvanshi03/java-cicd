@@ -34,16 +34,20 @@ jobs:
     steps:
       - name: Compute selected services JSON
         id: build
+        shell: bash
         run: >
           SELECTED=()
+
 
           if [ "${{ github.event.inputs.build_api_gateway }}" = "true" ]; then
             SELECTED+=("api-gateway")
           fi
 
+
           if [ "${{ github.event.inputs.build_car_service }}" = "true" ]; then
             SELECTED+=("car-service")
           fi
+
 
           if [ "${{ github.event.inputs.build_discovery_service }}" = "true" ]; then
             SELECTED+=("discovery-service")
@@ -58,7 +62,7 @@ jobs:
 
           printf -v JSON '[%s]' "$(printf '"%s",' "${SELECTED[@]}" | sed 's/,$//')"
 
-          echo "services_json=$JSON" >> $GITHUB_OUTPUT
+          echo "services_json=$JSON" >> "$GITHUB_OUTPUT"
 
           echo "Matrix: $JSON"
   build:
@@ -91,13 +95,14 @@ jobs:
           cache: maven
       - name: Build with Maven
         working-directory: ${{ env.SERVICE_DIR }}
-        run: mvn -B -ntp -DskipTests=false clean verify
+        run: mvn -B -ntp clean verify
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.service }}-jar
           path: ${{ env.SERVICE_DIR }}/target/*.jar
       - name: Build Docker image
-run: >
-  docker build -t ghcr.io/${{ github.repository_owner }}/${{ matrix.service
-  }}:${{ github.sha }} ${{ env.SERVICE_DIR }}
+        run: >
+          docker build \
+            -t ghcr.io/${{ github.repository_owner }}/${{ matrix.service }}:${{ github.run_number }} \
+            ${{ env.SERVICE_DIR }}
