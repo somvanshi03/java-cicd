@@ -99,5 +99,4 @@ jobs:
           path: ${{ env.SERVICE_DIR }}/target/*.jar
       - name: Build Docker image
         run: >
-          docker build -t ghcr.io/${{ github.repository_owner }}/${{ matrix.service
-          }}:${{ build_tag }} 
+          docker build -t ghcr.io/${{ steps.meta.outputs.build_tag }}
