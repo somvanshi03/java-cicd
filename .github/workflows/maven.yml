@@ -97,3 +97,8 @@ jobs:
         with:
           name: ${{ matrix.service }}-jar
           path: ${{ env.SERVICE_DIR }}/target/*.jar
+		  
+	
+	- name: Build Docker image
+	  run: |
+		docker build -t ghcr.io/${{ github.repository_owner }}/${{ matrix.service }}:${{ github.sha }} ${{ env.SERVICE_DIR }}
