@@ -25,6 +25,18 @@ on:
         options:
           - "17"
           - "21"
+      trivy_severity:
+        description: Trivy vulnerability severity to fail the build
+        required: true
+        type: choice
+        default: "CRITICAL,HIGH"
+        options:
+          - "CRITICAL"
+          - "HIGH"
+          - "CRITICAL,HIGH"
+          - "MEDIUM,HIGH,CRITICAL"
+          - "LOW,MEDIUM,HIGH,CRITICAL"
+
 jobs:
   prepare-matrix:
     name: Prepare matrix from checkboxes
@@ -108,7 +120,7 @@ jobs:
         run: >
           docker build -t ghcr.io/${{ github.repository_owner }}/${{ matrix.service
           }}:${{ github.sha }} ${{ env.SERVICE_DIR }}
-
+      
       - name: Scan Docker image with Trivy
         uses: aquasecurity/trivy-action@0.20.0
         with:
