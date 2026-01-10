@@ -1,0 +1,113 @@
+---
+name: Build Selected Microservices
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_api_gateway:
+        description: Build api-gateway
+        type: boolean
+        required: true
+        default: true
+      build_car_service:
+        description: Build car-service
+        type: boolean
+        required: true
+        default: false
+      build_discovery_service:
+        description: Build discovery-service
+        type: boolean
+        required: true
+        default: false
+      java_version:
+        description: Java version
+        required: true
+        type: choice
+        options: ["17", "21"]
+
+jobs:
+  prepare-matrix:
+    name: Prepare matrix
+    runs-on: ubuntu-latest
+    outputs:
+      services_json: ${{ steps.matrix.outputs.services_json }}
+    steps:
+      - name: Build matrix from inputs
+        id: matrix
+        shell: bash
+        run: |
+          SERVICES=()
+
+          [[ "${{ inputs.build_api_gateway }}" == "true" ]] && SERVICES+=("api-gateway")
+          [[ "${{ inputs.build_car_service }}" == "true" ]] && SERVICES+=("car-service")
+          [[ "${{ inputs.build_discovery_service }}" == "true" ]] && SERVICES+=("discovery-service")
+
+          if [ ${#SERVICES[@]} -eq 0 ]; then
+            echo "No services selected"
+            exit 1
+          fi
+
+          printf -v JSON '[%s]' "$(printf '"%s",' "${SERVICES[@]}" | sed 's/,$//')"
+          echo "services_json=$JSON" >> "$GITHUB_OUTPUT"
+          echo "Matrix: $JSON"
+
+  build:
+    name: Build & Dockerize
+    needs: prepare-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.prepare-matrix.outputs.services_json) }}
+
+    env:
+      SERVICE_DIR: ${{ matrix.service }}
+      JAVA_VERSION: ${{ inputs.java_version }}
+      IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.service }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate service directory
+        run: |
+          test -d "$SERVICE_DIR" || (echo "Missing $SERVICE_DIR" && exit 1)
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Build with Maven
+        working-directory: ${{ env.SERVICE_DIR }}
+        run: mvn -B -ntp clean verify
+
+      - name: Upload JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.service }}-jar
+          path: ${{ env.SERVICE_DIR }}/target/*.jar
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & Push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ env.SERVICE_DIR }}
+          file: ${{ env.SERVICE_DIR }}/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.run_number }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
