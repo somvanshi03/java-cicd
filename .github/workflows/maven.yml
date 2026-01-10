@@ -3,10 +3,21 @@ name: Build Selected Microservices
 on:
   workflow_dispatch:
     inputs:
-      service_names:
-        description: 'Comma-separated microservices to build (e.g., api-gateway,car-service,discovery-service)'
+      build_api_gateway:
+        description: 'Build api-gateway'
+        type: boolean
         required: true
-        type: string
+        default: true
+      build_car_service:
+        description: 'Build car-service'
+        type: boolean
+        required: true
+        default: false
+      build_discovery_service:
+        description: 'Build discovery-service'
+        type: boolean
+        required: true
+        default: false
       java_version:
         description: 'Java version (e.g., 17 or 21)'
         required: true
@@ -17,37 +28,36 @@ on:
 
 jobs:
   prepare-matrix:
+    name: Prepare matrix from checkboxes
     runs-on: ubuntu-latest
     outputs:
-      services_json: ${{ steps.build-matrix.outputs.services_json }}
+      services_json: ${{ steps.build.outputs.services_json }}
     steps:
-      - name: Build matrix JSON from input
-        id: build-matrix
+      - name: Compute selected services JSON
+        id: build
         run: |
-          # Normalize: remove spaces, to lowercase
-          RAW="${{ github.event.inputs.service_names }}"
-          NORMALIZED=$(echo "$RAW" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
-          # Validate allowed values
-          IFS=',' read -ra ARR <<< "$NORMALIZED"
-          VALID=("api-gateway" "car-service" "discovery-service")
-          FILTERED=()
-          for svc in "${ARR[@]}"; do
-            for v in "${VALID[@]}"; do
-              if [ "$svc" = "$v" ]; then
-                FILTERED+=("$svc")
-              fi
-            done
-          done
-          if [ ${#FILTERED[@]} -eq 0 ]; then
-            echo "No valid services selected. Allowed: api-gateway, car-service, discovery-service"
+          SELECTED=()
+          if [ "${{ github.event.inputs.build_api_gateway }}" = "true" ]; then
+            SELECTED+=("api-gateway")
+          fi
+          if [ "${{ github.event.inputs.build_car_service }}" = "true" ]; then
+            SELECTED+=("car-service")
+          fi
+          if [ "${{ github.event.inputs.build_discovery_service }}" = "true" ]; then
+            SELECTED+=("discovery-service")
+          fi
+
+          if [ ${#SELECTED[@]} -eq 0 ]; then
+            echo "No services selected. Choose at least one checkbox."
             exit 1
           fi
-          # Emit JSON array for matrix
-          printf -v JSON '[%s]' "$(printf '"%s",' "${FILTERED[@]}" | sed 's/,$//')"
+
+          printf -v JSON '[%s]' "$(printf '"%s",' "${SELECTED[@]}" | sed 's/,$//')"
           echo "services_json=$JSON" >> $GITHUB_OUTPUT
           echo "Matrix: $JSON"
 
   build:
+    name: Build selected services
     needs: prepare-matrix
     runs-on: ubuntu-latest
     strategy:
@@ -76,14 +86,13 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
-          cache: maven
+          cache: maven # change to 'gradle' if any service uses Gradle
 
       - name: Build with Maven
         working-directory: ${{ env.SERVICE_DIR }}
         run: mvn -B -ntp -DskipTests=false clean verify
-
-      # Optional: upload per-service JAR artifact
-      - name: Upload JAR
+        
+      - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.service }}-jar
