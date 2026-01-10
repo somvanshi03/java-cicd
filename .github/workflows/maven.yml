@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       service_name:
-        description: 'Microservice to build (service-a | service-b | service-c)'
+        description: 'Microservice to build (api-gateway | car-service | discovery-service)'
         required: true
         type: choice
         options:
