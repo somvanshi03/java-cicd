@@ -102,14 +102,6 @@ jobs:
           name: ${{ matrix.service }}-jar
           path: ${{ env.SERVICE_DIR }}/target/*.jar
       - name: Build Docker image
-  shell: bash
-  run: >
-    echo "SERVICE_DIR=${SERVICE_DIR}"
-
-    echo "TAG=ghcr.io/${{ github.repository_owner }}/${{ matrix.service }}:${{ github.run_number }}"
-
-
-    docker build \
-      -f "${SERVICE_DIR}/Dockerfile" \
-      -t "ghcr.io/${{ github.repository_owner }}/${{ matrix.service }}:${{ github.run_number }}" \
-      "${SERVICE_DIR}"
+        run: >
+          docker build -t ghcr.io/${{ github.repository_owner }}/${{ matrix.service
+          }}:${{ github.sha }} ${{ env.SERVICE_DIR }}
